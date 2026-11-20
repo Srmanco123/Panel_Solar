@@ -1,0 +1,10 @@
+# nunca se suben datos en claro
+app/config.json
+app/clave-web.json
+app/clave-web.salt
+app/token_cache.json
+app/data/
+app/models/
+app/snapshot-panel.html
+app/__pycache__/
+_site/
