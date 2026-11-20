@@ -26,6 +26,40 @@ def jget(path, required=False):
     return data
 
 
+BTN = ('<button type="button" id="{id}" style="font:600 .8rem system-ui,sans-serif;padding:7px 14px;'
+       'border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer">'
+       '{txt}</button>')
+
+# Lanza el workflow en GitHub, sigue su progreso y recarga al terminar (~2 min).
+DISPATCH_JS = r"""<script>(function(){
+var C=__CFG__,b=document.getElementById("snap-now"),m=document.getElementById("snap-msg");
+var H={"Authorization":"Bearer "+C.t,"Accept":"application/vnd.github+json","X-GitHub-Api-Version":"2022-11-28"};
+var API="https://api.github.com/repos/"+C.r+"/actions";
+function say(t,bad){m.style.display="block";m.style.color=bad?"var(--bad,#c0392b)":"inherit";m.textContent=t;}
+function reset(){b.disabled=false;b.textContent="⚡ Actualizar ahora";}
+var sleep=function(ms){return new Promise(function(r){setTimeout(r,ms)})};
+b.onclick=async function(){
+  b.disabled=true;b.textContent="Pidiendo…";
+  var t0=Date.now()-15000,run=null,start=Date.now();
+  try{
+    var r=await fetch(API+"/workflows/"+C.w+"/dispatches",{method:"POST",headers:H,body:JSON.stringify({ref:"main"})});
+    if(r.status!==204) throw new Error(r.status===401||r.status===403?"el permiso (token) ha caducado o no es válido":"GitHub respondió "+r.status);
+    while(Date.now()-start<8*60000){
+      await sleep(8000);
+      var j=await (await fetch(API+"/workflows/"+C.w+"/runs?event=workflow_dispatch&per_page=5",{headers:H,cache:"no-store"})).json();
+      run=(j.workflow_runs||[]).filter(function(x){return Date.parse(x.created_at)>=t0;}).pop()||run;
+      var s=Math.round((Date.now()-start)/1000);
+      if(!run){say("Esperando a que GitHub arranque… ("+s+" s)");continue;}
+      if(run.status!=="completed"){b.textContent="Actualizando…";say((run.status==="queued"?"En cola":"Descargando datos de Deye y regenerando el panel")+"… ("+s+" s, suele tardar 1–2 min)");continue;}
+      if(run.conclusion!=="success") throw new Error("la actualización falló en GitHub ("+run.conclusion+")");
+      say("¡Listo! Cargando los datos nuevos…");await sleep(4000);
+      location.replace(location.pathname+"?t="+Date.now());return;
+    }
+    throw new Error("está tardando demasiado; prueba «Recargar» en unos minutos");
+  }catch(e){say("No se pudo actualizar: "+e.message,true);reset();}
+};})();</script>"""
+
+
 def build():
     today = dt.date.today()
     year = today.year
@@ -72,21 +106,26 @@ def build():
     assert html.count(marker) == 1, "no encontré dónde inyectar los datos"
     html = html.replace(marker, "<script>window.__SNAP__=" + blob + ";</script>\n" + marker)
     # 2) aviso de instantánea antes de los KPIs
-    dias = ", ".join(f"{d[8:10]}/{d[5:7]}" for d in data["dayList"]) or "—"
+    # «Actualizar ahora»: solo en la web cifrada y si GitHub Actions nos pasa un token que únicamente puede
+    # lanzar la actualización de este repo (va dentro del panel cifrado: solo lo tiene quien entra con la clave)
+    tok, repo = os.environ.get("PANEL_DISPATCH_TOKEN", ""), os.environ.get("GITHUB_REPOSITORY", "")
+    dispatch = {"t": tok, "r": repo, "w": "actualizar.yml"} if ("--web" in sys.argv and tok and repo) else None
+    dias =", ".join(f"{d[8:10]}/{d[5:7]}" for d in data["dayList"]) or "—"
     gen_iso = dt.datetime.now().astimezone().isoformat(timespec="seconds")
     banner = ('<div style="background:var(--surface2);color:var(--fg);border:1px solid var(--line);border-radius:10px;'
               'padding:8px 12px;margin:8px 0;font:500 .78rem system-ui,sans-serif;display:flex;gap:10px;'
               'align-items:center;flex-wrap:wrap"><span style="flex:1 1 260px">Instantánea · datos del '
-              + data["generated"] + ' <b id="snap-age" data-gen="' + gen_iso + '"></b> · se actualiza cada hora (07–23 h) · '
+              + data["generated"] + ' <b id="snap-age" data-gen="' + gen_iso + '"></b> · se actualiza sola cada hora (06–23 h) · '
               'curva intradía: ' + dias + '. Los precios se cambian en la app del PC.</span>'
-              '<button type="button" id="snap-reload" style="font:600 .8rem system-ui,sans-serif;padding:7px 14px;'
-              'border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer">'
-              '↻ Recargar</button></div>'
+              + BTN.format(id="snap-reload", txt="↻ Recargar")
+              + (BTN.format(id="snap-now", txt="⚡ Actualizar ahora") if dispatch else "")
+              + '<span id="snap-msg" style="flex-basis:100%;display:none"></span></div>'
               '<script>(function(){var a=document.getElementById("snap-age"),g=new Date(a.dataset.gen);'
               'function age(){var m=Math.round((Date.now()-g)/60000);a.textContent=m<1?"(ahora)":m<60?"(hace "+m+" min)":'
               '"(hace "+Math.floor(m/60)+" h "+(m%60)+" min)";}age();setInterval(age,60000);'
               'document.getElementById("snap-reload").onclick=function(){this.disabled=true;this.textContent="Cargando…";'
-              'location.replace(location.pathname+"?t="+Date.now());};})();</script>')
+              'location.replace(location.pathname+"?t="+Date.now());};})();</script>'
+              + (DISPATCH_JS.replace("__CFG__", json.dumps(dispatch)) if dispatch else ""))
     assert '<div class="kpis" id="kpis">' in html
     html = html.replace('<div class="kpis" id="kpis">', banner + '<div class="kpis" id="kpis">', 1)
 
@@ -105,7 +144,7 @@ def build():
         if not cred:
             raise RuntimeError("falta clave-web.json: la web no se publica sin usuario y contraseña")
         html = lock.encrypt_page(html, *cred)
-        for sec in secretos + list(cred):
+        for sec in secretos + list(cred) + ([dispatch["t"]] if dispatch else []):
             if sec and len(str(sec)) >= 4 and str(sec) in html:
                 raise RuntimeError("ABORTADO: el candado contendría un dato privado")
         print("Candado: cifrado con usuario y contraseña (AES-256-GCM, PBKDF2 600 000 it.)")

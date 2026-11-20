@@ -27,6 +27,7 @@ def main():
     cfg = content["config"]
     secretos = [str(cfg.get(k) or "") for k in ("appId", "appSecret", "email", "password", "password_sha256",
                                                  "stationId", "deviceSn")]
+    secretos.append(os.environ.get("PANEL_DISPATCH_TOKEN", ""))
     secretos = [s for s in secretos if len(s) >= 4]
 
     def w(name, data):

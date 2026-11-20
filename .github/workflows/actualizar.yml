@@ -33,6 +33,7 @@ jobs:
         env:
           DEYE_EMAIL: ${{ secrets.DEYE_EMAIL }}
           DEYE_PASSWORD: ${{ secrets.DEYE_PASSWORD }}
+          PANEL_DISPATCH_TOKEN: ${{ secrets.PANEL_DISPATCH_TOKEN }}   # opcional: botón «Actualizar ahora»
       - uses: actions/upload-pages-artifact@v4
         with:
           path: _site
