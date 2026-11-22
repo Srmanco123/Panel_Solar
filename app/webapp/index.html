@@ -283,6 +283,7 @@ async function loadDia(){
   const c=C();
   chart('#c-dia',{type:'line',data:{labels:d.series.map(p=>p.t),datasets:[
     {type:'line',label:'Generación (kW)',data:d.series.map(p=>({x:p.t,y:p.gen})),borderColor:c.gen,backgroundColor:c.gen+'33',fill:true,pointRadius:0,borderWidth:2,tension:.3,yAxisID:'y'},
+    ...(d.est_series?[{type:'line',label:'Estimación modelo (kW)',data:d.series.map((p,i)=>({x:p.t,y:d.est_series[i]})),borderColor:c.gen,borderDash:[6,4],pointRadius:0,borderWidth:1.4,tension:.4,yAxisID:'y'}]:[]),
     {type:'line',label:'Consumo (kW)',data:d.series.map(p=>({x:p.t,y:p.cons})),borderColor:c.cons,pointRadius:0,borderWidth:1.5,tension:.3,yAxisID:'y'},
     {type:'line',label:'Batería SOC (%)',data:d.series.map(p=>({x:p.t,y:p.soc})),borderColor:c.soc,borderDash:[4,3],pointRadius:0,borderWidth:1.3,tension:.3,yAxisID:'y1'},
     {type:'line',label:'Precio compra (€/kWh)',data:d.price_curve.map((v,h)=>({x:h,y:v})),borderColor:c.price,pointRadius:0,borderWidth:1,stepped:true,yAxisID:'y2'},

@@ -304,6 +304,37 @@ def _day_hourly(intraday):
     return imp, exp
 
 
+def _sun_weights(date_iso, lat, lon, hours):
+    """Peso = seno de la altura solar (0 de noche). Da la 'forma' de un día despejado
+    para repartir el estimado diario (kWh) en una curva de potencia esperada (kW)."""
+    d = dt.date.fromisoformat(date_iso)
+    n = d.timetuple().tm_yday
+    decl = math.radians(23.45 * math.sin(math.radians(360 * (284 + n) / 365)))
+    B = math.radians(360 * (n - 81) / 364)
+    eot = 9.87 * math.sin(2 * B) - 7.53 * math.cos(B) - 1.5 * math.sin(B)   # minutos
+    ts0 = dt.datetime.combine(d, dt.time(12)).timestamp()
+    off_h = (dt.datetime.fromtimestamp(ts0) - dt.datetime.utcfromtimestamp(ts0)).total_seconds() / 3600
+    tc = 4 * (lon - 15 * off_h) + eot                                        # corrección a hora solar (min)
+    latr = math.radians(lat)
+    out = []
+    for t in hours:
+        H = math.radians(15 * (t + tc / 60.0 - 12))
+        out.append(max(0.0, math.sin(latr) * math.sin(decl) + math.cos(latr) * math.cos(decl) * math.cos(H)))
+    return out
+
+
+def _est_series(date_iso, lat, lon, est, series):
+    """Curva de potencia esperada (kW) alineada con los puntos reales, cuya área del día = est (kWh)."""
+    if not est or not series or lat is None:
+        return None
+    grid = [i / 6.0 for i in range(24 * 6 + 1)]                              # cada 10 min
+    area = sum(w for w in _sun_weights(date_iso, lat, lon, grid)) / 6.0      # kWh por unidad de peso
+    if area <= 0:
+        return None
+    k = est / area
+    return [round(w * k, 3) for w in _sun_weights(date_iso, lat, lon, [p["t"] for p in series])]
+
+
 @app.get("/api/day")
 def day():
     s = S()
@@ -365,6 +396,7 @@ def day():
     est = _estimates([date]).get(date)
     return jsonify({
         "date": date, "weekend": weekend, "series": series, "est": est,
+        "est_series": _est_series(date, s.get("lat"), s.get("lon"), est, series),
         "price_curve": s["compra"].curve(date, weekend),
         "export_price_curve": s["exced"].curve(date, weekend),
         "totals": {"gen": gen_kwh, "cons": cons_kwh, "export": export_kwh, "purchase": purchase_kwh, "est": est},
